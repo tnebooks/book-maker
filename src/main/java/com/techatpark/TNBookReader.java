@@ -1,5 +1,8 @@
 package com.techatpark;
 
+import com.techatpark.util.OCRHelper;
+import com.techatpark.util.RegionBasedTextStripper;
+
 import io.github.furstenheim.CopyDown;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -18,7 +21,6 @@ import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.io.IOException;
-import java.lang.annotation.Documented;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,12 +41,16 @@ public class TNBookReader {
     private final Rectangle rectLeft;
     private final Rectangle rectRight;
 
+    private final Rectangle titleRectangle;
+
     private Function<String, String> transformFn;
 
-    public TNBookReader(final String bookName, final String bookPdf) {
+    public TNBookReader(final String bookName, final String bookPdf,
+                        final Rectangle titleRectangle) {
         this.bookName = bookName;
         this.bookPdf = bookPdf;
         this.languages = new ArrayList<>();
+        this.titleRectangle = titleRectangle;
 
         rectLeft = new Rectangle(10, 50, 320, 750);
         rectRight = new Rectangle(330, 50, 320, 750);
@@ -57,6 +63,7 @@ public class TNBookReader {
     }
 
 
+
     public TNBookReader addLanguage(String code, final String bookName, final String bookPdf) {
         this.languages.add(new Language(code, bookName, bookPdf));
         return this;
@@ -67,7 +74,10 @@ public class TNBookReader {
 
         File bookRoot = new File(bookPath);
 
+        bookRoot.mkdirs();
+
         File tempFolder = new File("temp" + File.separator + bookName.toLowerCase());
+// pdf split to chapter wise seperated files
 
         java.util.List<File> chapterFiles = getChapters(new File(tempFolder, "content.en"), new File(bookPdf));
 
@@ -78,24 +88,16 @@ public class TNBookReader {
                 throw new RuntimeException(e);
             }
         });
-
+        // creating folders language specific
         File englishContentFolder = new File(bookRoot, "content.en" + File.separator + bookName.toLowerCase());
 
         englishContentFolder.mkdirs();
 
-
-        //Executor service instance
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-
-        List<Callable<Void>> tasksList = new ArrayList<>(chapterFiles.size());
-
         for (int i = 0; i < chapterFiles.size(); i++) {
             int number = i;
-            tasksList.add(() -> extractChapter(bookRoot, tempFolder, chapterFiles, englishContentFolder, number));
+            extractChapter(bookRoot, tempFolder, chapterFiles, englishContentFolder, number);
         }
 
-        executor.invokeAll(tasksList);
-        executor.shutdown();
     }
 
     private Void extractChapter(final File bookRoot, final File tempFolder, final List<File> chapterFiles, final File englishContentFolder, final int i) throws IOException {
@@ -103,8 +105,8 @@ public class TNBookReader {
             PDDocumentInformation info = pdDocument.getDocumentInformation();
             String folderName = info.getAuthor();
 
+            //creating a sub folder for each chapter
             File mdFile = new File(englishContentFolder, folderName + File.separator + "_index.md");
-
             mdFile.getParentFile().mkdirs();
 
             String frontMatter = "---\n" +
@@ -113,7 +115,7 @@ public class TNBookReader {
                     "---\n\n" + getMarkdown(chapterFiles.get(i));
 
             Files.writeString(mdFile.toPath(), frontMatter);
-
+//            language wise parsing pdf
             for (Language language:
             this.languages) {
 
@@ -128,11 +130,7 @@ public class TNBookReader {
                     PDDocument pdDocumentForLanguage = Loader.loadPDF(languagePdf);
 
                     String markdown = getMarkdown(languagePdf);
-                    if(language.code.equals("ta")) {
-                        markdown = markdown
-                                .replaceAll("பசய்தல்","செய்தல்")
-                                .replaceAll(" �யன்�டுத்தி ", "பயன்படுத்தி");
-                    }
+
 
                     String frontMatterForLanguage = "---\n" +
                             "title: '"+ pdDocumentForLanguage.getDocumentInformation().getTitle() +"'\n" +
@@ -187,15 +185,17 @@ public class TNBookReader {
                             childDocument.addPage(pageTree.get(i));
                         }
 
+
+                        System.out.println(item.getTitle());
+
+
+
+
                         PDDocumentInformation info = childDocument.getDocumentInformation();
 
                         String title = getTitle(chapterPdfName, pageTree.get(startPg));
                         info.setTitle(title);
-                        info.setAuthor(title.toLowerCase()
-                                .replaceAll("\n", "-")
-                                .replaceAll(" ", "-")
-                                .replaceAll("---", "-")
-                                .replaceAll("--", "-"));
+                        info.setAuthor(getSeoFolderName(title));
 
                         childDocument.save(child);
                         childDocument.close();
@@ -224,11 +224,7 @@ public class TNBookReader {
 
                     String title = getTitle(chapterPdfName, pageTree.get(startPg));
                     info.setTitle(title);
-                    info.setAuthor(title.toLowerCase()
-                            .replaceAll("\n", "-")
-                            .replaceAll(" ", "-")
-                            .replaceAll("---", "-")
-                            .replaceAll("--", "-"));
+                    info.setAuthor(getSeoFolderName(title));
 
                     pdDocument1.save(child);
                     pdDocument1.close();
@@ -245,21 +241,42 @@ public class TNBookReader {
         return children;
     }
 
+    private String getSeoFolderName(final String title) {
+        String fName = title.toLowerCase()
+                .replaceAll("\n", "-")
+                .replaceAll(" ", "-")
+                .replaceAll("---", "-")
+                .replaceAll("--", "-")
+                .replaceAll("[^a-z0-9-]", "");
+
+        if(fName.length() > 75) {
+            fName = fName.substring(0,75);
+        }
+
+        if(fName.startsWith("-")) {
+            fName = fName.substring(1);
+        }
+
+        return fName;
+    }
+
     private String getTitle(String chapterPdfName, final PDPage pageOne) throws IOException {
         PDFTextStripperByArea textStripper = new PDFTextStripperByArea();
-        Rectangle2D rect = new Rectangle(0, 140, 640, 75);
-        textStripper.addRegion("region", rect);
+        textStripper.addRegion("region", titleRectangle);
         textStripper.extractRegions(pageOne);
 
         String textForRegion = textStripper.getTextForRegion("region")
                 .replaceAll("\\d", "")
-                .replaceAll("Chapter Outline","")
                 .replaceAll(": ","-")
                 .replaceAll("\n"," ")
-                .replaceAll("themselves to the new world. The biggest  ","")
                 .trim();
 
-        System.out.println(textForRegion);
+        int indexOf = textForRegion.toLowerCase().indexOf("chapter outline");
+        if(indexOf != -1) {
+            textForRegion = textForRegion.substring(0, indexOf);
+        }
+
+        //System.out.println(textForRegion);
         return textForRegion.length() == 0 ? chapterPdfName : textForRegion;
     }
 
