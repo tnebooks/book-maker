@@ -6,21 +6,26 @@ import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.UUID;
 
 class TNBookReaderTest {
 
     @Test
     void testExtractBook() throws IOException, InterruptedException {
 
-        new TNBookReader("Microbiology",
-                "/Users/thirumuruganmani/Downloads/11th_Micro_Biology_EM - www.tntextbooks.in.pdf",
+        File tempDir = new File(System.getProperty("java.io.tmpdir") + File.separator + UUID.randomUUID().toString());
+        tempDir.mkdirs();
+
+        new TNBookReader("English",
+                "/home/haripriya/TNBOOKS/10th_Social-Science-EM - www.tntextbooks.in.pdf",
                 new Rectangle(10, 120, 300, 70)
                 )
-                .transformFn(this::transformUsingRegEx)
-                .addLanguage("ta" ,
-                        "நுண்ணுயிரியல்",
-                        "/Users/thirumuruganmani/Downloads/11th_Micro_Biology_TM - www.tntextbooks.in.pdf")
-                .extract("/Users/thirumuruganmani/projects/explore/test/11th-microbiology");
+//                .transformFn(this::transformUsingRegEx)
+//                .addLanguage("ta" ,
+//                        "நுண்ணுயிரியல்",
+//                        "/Users/thirumuruganmani/Downloads/11th_Micro_Biology_TM - www.tntextbooks.in.pdf")
+//                .extract("/home/haripriya/Official/12th-english");
+                .extract(tempDir.getAbsolutePath());
 
     }
 
